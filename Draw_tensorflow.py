@@ -18,7 +18,6 @@ tf.flags.DEFINE_boolean("write_attn",True, "enable attention for writer")
 FLAGS = tf.flags.FLAGS
 
 ## MODEL PARAMETERS ## 
-
 A,B = 28,28 # image width,height
 img_size = B*A # the canvas size
 enc_size = 256 # number of hidden units / output size in LSTM
@@ -39,7 +38,7 @@ eps=1e-8 # epsilon for numerical stability
 DO_SHARE=None # workaround for variable_scope(reuse=True)
 
 x = tf.placeholder(tf.float32,shape=(batch_size,img_size)) # input (batch_size * img_size)
-e=tf.random_normal((batch_size,z_size), mean=0, stddev=1) # Qsampler noise
+e = tf.random_normal((batch_size,z_size), mean=0, stddev=1) # Qsampler noise
 lstm_enc = tf.contrib.rnn.LSTMCell(enc_size, state_is_tuple=True) # encoder Op
 lstm_dec = tf.contrib.rnn.LSTMCell(dec_size, state_is_tuple=True) # decoder Op
 
@@ -71,7 +70,6 @@ def filterbank(gx, gy, sigma2,delta, N):
 def attn_window(scope,h_dec,N):
     with tf.variable_scope(scope,reuse=DO_SHARE):
         params=linear(h_dec,5)
-    # gx_,gy_,log_sigma2,log_delta,log_gamma=tf.split(1,5,params)
     gx_,gy_,log_sigma2,log_delta,log_gamma=tf.split(params,5,1)
     gx=(A+1)/2*(gx_+1)
     gy=(B+1)/2*(gy_+1)
@@ -135,12 +133,12 @@ def write_no_attn(h_dec):
 def write_attn(h_dec):
     with tf.variable_scope("writeW",reuse=DO_SHARE):
         w=linear(h_dec,write_size) # batch x (write_n*write_n)
-    N=write_n
-    w=tf.reshape(w,[batch_size,N,N])
-    Fx,Fy,gamma=attn_window("write",h_dec,write_n)
-    Fyt=tf.transpose(Fy,perm=[0,2,1])
-    wr=tf.matmul(Fyt,tf.matmul(w,Fx))
-    wr=tf.reshape(wr,[batch_size,B*A])
+    N = write_n
+    w = tf.reshape(w,[batch_size,N,N])
+    Fx,Fy,gamma = attn_window("write",h_dec,write_n)
+    Fyt = tf.transpose(Fy,perm=[0,2,1])
+    wr = tf.matmul(Fyt,tf.matmul(w,Fx))
+    wr = tf.reshape(wr,[batch_size,B*A])
     #gamma=tf.tile(gamma,[1,B*A])
     return wr*tf.reshape(1.0/gamma,[-1,1])
 
