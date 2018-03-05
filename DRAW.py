@@ -43,14 +43,19 @@ def linear(x,output_dim):
 
 def attn_window(args):
 	gx_,sigma2,delta = args
-	gx = (A+1)/2*(gx_+1)
+	gx = Lambda(lambda x:(A+1)/2*(x+1))(gx_)
 	grid_i = K.reshape(K.cast(K.arange(start=0,stop=N), "float32"), (1, -1))
-	mu_x = gx + (grid_i - N / 2 - 0.5) * delta
-	mu_x = K.reshape(mu_x, [-1, N, 1])
+	delta = Lambda(lambda x: (grid_i - N / 2 - 0.5) * x)(delta) 
+	mu_x = keras.layers.Add()([gx,delta])
+	mu_x = keras.layers.Reshape([N, 1])(mu_x)
 	a = K.reshape(K.cast(K.arange(start=0,stop=img_width), "float32"), (1, 1, -1))
-	sigma2 = K.reshape(sigma2, [-1, 1, 1])
-	Fx = K.exp(-K.square(a - mu_x) / (2*sigma2))
-	Fx = Fx/K.sum(Fx,2,keepdims=True)
+	sigma2 = keras.layers.Reshape([1, 1])(sigma2)
+	a = keras.layers.Add()([a,-mu_x])
+	a_out = Lambda(lambda x:K.square(x))(a)
+	sigma2 = Lambda(lambda x:1/(2*x))(sigma2)
+	a_out = keras.layers.multiply([a_out,sigma2])
+	Fx = Lambda(lambda x:K.exp(x))(a_out)
+	Fx = Lambda(lambda x:x/(K.sum(x,2,keepdims=True)))(Fx)
 	return Fx
 
 def read(args):
@@ -59,10 +64,10 @@ def read(args):
 		Fxt = K.permute_dimensions(Fx,(0,2,1))
 		image_t = K.reshape(image_t,(-1,B,A))
 		image_err = K.reshape(image_err,(-1,B,A))
-		print(image_t.shape,Fxt.shape)
-		glimpse = K.dot(Fyt,K.dot(image_t,Fxt))
+		image_t_dot = K.batch_dot(image_t,Fxt)
+		glimpse = K.batch_dot(Fyt,K.batch_dot(image_t,Fxt))
 		glimpse = K.reshape(glimpse,(-1,N*N))*K.reshape(gamma,(-1,1))
-		glimpse_error = K.dot(Fyt,K.dot(image_err,Fxt))
+		glimpse_error = K.batch_dot(Fyt,K.batch_dot(image_err,Fxt))
 		glimpse_error = K.reshape(glimpse_error,(-1,N*N))*K.reshape(gamma,(-1,1))
 		return K.concatenate([glimpse,glimpse_error],1)
 	else:
@@ -79,7 +84,7 @@ def write(args):
 		Fyt = K.permute_dimensions(Fyt,(0,2,1))
 		w = write_dense_image(h_dec_prev)
 		w = K.reshape(w,[-1,write_n,write_n])
-		wr = K.dot(Fyt,K.dot(w,Fxt))
+		wr = K.batch_dot(Fyt,K.batch_dot(w,Fxt))
 		wr = K.reshape(wr,[-1,B*A])
 		return wr*K.reshape(1.0/gamma,[-1,1])
 	else:
@@ -159,4 +164,4 @@ model.compile(optimizer='rmsprop',loss=vae_loss)
 #model.summary()
 (x_train, y_train), (x_test, y_test) = mnist.load_data()
 x_train = x_train.reshape(x_train.shape[0], 28*28)
-model.fit([x_train,np.zeros((60000,28*28)),np.zeros((60000,128)),np.zeros((60000,128))],x_train,verbose=2,batch_size=1)
+model.fit([x_train,np.zeros((60000,28*28)),np.zeros((60000,128)),np.zeros((60000,128))],x_train,verbose=1,batch_size=64)
