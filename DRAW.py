@@ -4,7 +4,7 @@ Author: Saiprasad Koturwar
 DISCLAIMER
 Work in progress.
 """
-
+from __future__ import division
 from keras.layers import LSTM,Input,Lambda,Dense,Activation
 from keras import backend as K
 from keras.models import Model
@@ -12,6 +12,7 @@ import keras
 from keras import metrics
 from keras.datasets import mnist
 import numpy as np
+import cv2
 
 
 A,B = 28,28 # image width,height
@@ -29,33 +30,26 @@ latent_space_dim = 128
 #RNN_decoder = LSTM(latent_space_dim,return_sequences=True)
 #RNN_encoder = LSTM(latent_space_dim,return_sequences=True)
 read_dense = Dense(5,activation="linear")
-write_dense = Dense(5,activation="linear")
+#write_dense = Dense(5,activation="linear")
 write_dense_image = Dense(write_n*write_n,activation="linear")
 def Latent_Distribution_Sampling(args):
 	z_mean,z_log_var = args
 	epsilon = K.random_normal(shape=(K.shape(z_mean)[0], latent_space_dim), mean=0.,stddev=epsilon_std)
 	return z_mean + K.exp(z_log_var / 2) * epsilon
 
-def linear(x,output_dim):
-    w = K.variable("w", [x.shape()[1], output_dim]) 
-    b = K.variable("b", [output_dim], initializer= keras.initializers.Constant(value=0.0))
-    return K.dot(x,w)+b
-
 def attn_window(args):
-	gx_,sigma2,delta = args
-	gx = Lambda(lambda x:(A+1)/2*(x+1))(gx_)
-	grid_i = K.reshape(K.cast(K.arange(start=0,stop=N), "float32"), (1, -1))
-	delta = Lambda(lambda x: (grid_i - N / 2 - 0.5) * x)(delta) 
-	mu_x = keras.layers.Add()([gx,delta])
-	mu_x = keras.layers.Reshape([N, 1])(mu_x)
-	a = K.reshape(K.cast(K.arange(start=0,stop=img_width), "float32"), (1, 1, -1))
+	gx,sigma2,delta = args
+	mu_x = Lambda(lambda x: (K.reshape(K.cast(K.arange(start=0,stop=N), "float32")- K.constant(N / 2 - 0.5),(N,1)))*x[0]+x[1])([delta,gx]) 
+	mu_x = Lambda(lambda x:K.permute_dimensions(x,(1,0)))(mu_x)
+	mu_x = Lambda(lambda x:K.expand_dims(x,axis=2))(mu_x)
+	mu_x = Lambda(lambda x:K.repeat_elements(x,axis=2,rep=img_width))(mu_x)
+	a = Lambda(lambda x:K.repeat_elements(K.reshape(K.cast(K.arange(start=0,stop=img_width), "float32"), (1,img_width) ),axis=0,rep=N)-x)(mu_x)
 	sigma2 = keras.layers.Reshape([1, 1])(sigma2)
-	a = keras.layers.Add()([a,-mu_x])
 	a_out = Lambda(lambda x:K.square(x))(a)
-	sigma2 = Lambda(lambda x:1/(2*x))(sigma2)
+	sigma2 = Lambda(lambda x:1/(2*(x+K.epsilon())))(sigma2)
 	a_out = keras.layers.multiply([a_out,sigma2])
-	Fx = Lambda(lambda x:K.exp(x))(a_out)
-	Fx = Lambda(lambda x:x/(K.sum(x,2,keepdims=True)))(Fx)
+	Fx = Lambda(lambda x:K.exp(-x))(a_out)
+	Fx = Lambda(lambda x:x/(K.sum(x,2,keepdims=True)+K.epsilon()))(Fx)
 	return Fx
 
 def read(args):
@@ -71,7 +65,7 @@ def read(args):
 		glimpse_error = K.reshape(glimpse_error,(-1,N*N))*K.reshape(gamma,(-1,1))
 		return K.concatenate([glimpse,glimpse_error],1)
 	else:
-		return K.concatenate([image_t,image_error],1)    
+		return K.concatenate([image_t,image_err],1)    
 
 def concatenate(args):
 	return K.concatenate(args,1)
@@ -86,7 +80,7 @@ def write(args):
 		w = K.reshape(w,[-1,write_n,write_n])
 		wr = K.batch_dot(Fyt,K.batch_dot(w,Fxt))
 		wr = K.reshape(wr,[-1,B*A])
-		return wr*K.reshape(1.0/gamma,[-1,1])
+		return wr*K.reshape(1.0/(gamma+K.epsilon()),[-1,1])
 	else:
 		return write_dense(h_dec_prev)
 
@@ -104,8 +98,8 @@ attn = Lambda(attn_window)
 #sub = K.zeros(shape=(img_width*img_height*channels,))
 mean = Dense(latent_space_dim,activation="linear")
 log_var = Dense(latent_space_dim,activation="linear")
-RNN_decoder = LSTM(latent_space_dim,return_state=True)
-RNN_encoder = LSTM(latent_space_dim,return_state=True)
+RNN_decoder = LSTM(latent_space_dim)
+RNN_encoder = LSTM(latent_space_dim)
 merge_add = keras.layers.Add()
 merge_sub = keras.layers.Subtract()
 C_sigma = Activation("sigmoid")(C)
@@ -117,51 +111,65 @@ def DRAW(args):
 	X,C_sigma,C_out,h_dec_prev_out,h_enc_prev_out = args
 	for i in range(T):
 		if i==0:
-			kl_terms = []
+			kl = []
 		C_sigma = Activation("sigmoid")(C_out)
 		X_hat = merge_sub([X,C_sigma])
 		attn_param = read_dense(h_dec_prev_out)
-		gx_ = Lambda(lambda x: x[:,0])(attn_param)
-		gy_ = Lambda(lambda x: x[:,1])(attn_param)
+		gx = Lambda(lambda x: (A+1)*(x[:,0]+1)/2)(attn_param)
+		gy = Lambda(lambda x: (B+1)*(x[:,1]+1)/2)(attn_param)
 		sigma2 = Lambda(lambda x: K.exp(x[:,2]))(attn_param)
 		delta = Lambda(lambda x: (max(A,B)-1)/(N-1)*K.exp(x[:,3]))(attn_param)
 		gamma = Lambda(lambda x: K.exp(x[:,4]))(attn_param)
-		Fx = attn([gx_,sigma2,delta])
-		Fy = attn([gy_,sigma2,delta])
+		Fx = attn([gx,sigma2,delta])
+		Fy = attn([gy,sigma2,delta])
 		r = R([X,X_hat,Fx,Fy,gamma])
 		h_dec = Con([r,h_dec_prev_out])
 		h_dec = keras.layers.Reshape((1,latent_space_dim+2*N*N))(h_dec)
-		h_enc_prev_out = keras.layers.Reshape((-1,1,latent_space_dim))(h_enc_prev_out)
-		h_enc_prev_out,_,enc_state = RNN_encoder(h_dec)
+		#h_enc_prev_out = keras.layers.Reshape((-1,1,latent_space_dim))(h_enc_prev_out)
+		h_enc_prev_out = RNN_encoder(h_dec)
 		z_mean,z_log_var = mean(h_enc_prev_out),log_var(h_enc_prev_out)
 		z = Z([z_mean, z_log_var])
-		kl_terms.append(0.5*K.sum(z_mean+K.square(K.exp(z_log_var))-2*z_log_var,1) - 0.5) 
+		kl.append(0.5*K.sum(K.square(z_mean)+K.exp(z_log_var)-2*z_log_var,1)-0.5) 
 		z = keras.layers.Reshape((1,latent_space_dim))(z)
-		h_dec_prev_out,_,dec_state = RNN_decoder(z)
-		attn_param = write_dense(h_dec_prev_out)
-		gx_ = Lambda(lambda x: x[:,0])(attn_param)
-		gy_ = Lambda(lambda x: x[:,1])(attn_param)
+		h_dec_prev_out = RNN_decoder(z)
+		#'''
+		attn_param = read_dense(h_dec_prev_out)
+		gx = Lambda(lambda x: (A+1)*(x[:,0]+1)/2)(attn_param)
+		gy = Lambda(lambda x: (B+1)*(x[:,1]+1)/2)(attn_param)
 		sigma2 = Lambda(lambda x: K.exp(x[:,2]))(attn_param)
 		delta = Lambda(lambda x: (max(A,B)-1)/(N-1)*K.exp(x[:,3]))(attn_param)
 		gamma = Lambda(lambda x: K.exp(x[:,4]))(attn_param)
-		Fx = attn([gx_,sigma2,delta])
-		Fy = attn([gy_,sigma2,delta])
+		Fx = attn([gx,sigma2,delta])
+		Fy = attn([gy,sigma2,delta])
 		w = W([Fx,Fy,gamma])
+		#'''
 		C_out = merge_add([C_out,w])
-	return kl_terms,C_out	
-kl_terms,C_out = DRAW([x,C_sigma,C_out,h_dec_prev_out,h_enc_prev_out])
-def vae_loss(x, x_decoded_mean):
-    xent_loss = K.sum(K.binary_crossentropy(x, x_decoded_mean))
-    kl_loss = - 0.5 * K.sum((kl_terms), axis=-1)
-    vae_loss = K.mean(xent_loss + kl_loss)
-    return vae_loss
-#Lx = K.sum(K.binary_crossentropy(x, C_out), axis=1)
-#Lz = K.sum(kl_terms)
-#loss = Lx + Lz
+	return kl,C_out	
+kl,C_out = DRAW([x,C_sigma,C_out,h_dec_prev_out,h_enc_prev_out])
+#C_out = Activation("sigmoid")(C_out)
+Lx = K.sum(K.binary_crossentropy(x, C_out))
+#print(C_out.shape)
+#Lx = K.sum(C_out)
+loss = Lx + K.sum(kl)
 model = Model([x,C,h_dec_prev,h_enc_prev],C_out)
-#model.add_loss(loss)
-model.compile(optimizer='rmsprop',loss=vae_loss)
-#model.summary()
+model.add_loss(loss)
+model.compile(optimizer='adam',loss=None)
 (x_train, y_train), (x_test, y_test) = mnist.load_data()
+x_train = x_train/255
+print(np.max(x_train))
 x_train = x_train.reshape(x_train.shape[0], 28*28)
-model.fit([x_train,np.zeros((60000,28*28)),np.zeros((60000,128)),np.zeros((60000,128))],x_train,verbose=1,batch_size=64)
+#x_train = x_train[:200,:]
+model.fit([x_train,np.zeros((60000,28*28)),np.zeros((60000,128)),np.zeros((60000,128))],verbose=1,batch_size=200,epochs=20)
+x_out = model.predict([x_train[:2,:],np.zeros((2,28*28)),np.zeros((2,128)),np.zeros((2,128))],batch_size=1)
+x_out1 = x_out[0,:]
+print(np.max(x_out1))
+x_out2 = x_train[0,:]
+x_out1 = x_out1*255
+x_out1 = x_out1.astype('uint8')
+x_out2 = x_out2*255
+x_out2 = x_out2.astype('uint8')
+x_out2 = x_out2.reshape((28,28))
+x_out1 = x_out1.reshape((28,28))
+cv2.imshow("img",cv2.resize(x_out1,(280,280)))
+cv2.imshow("img2",cv2.resize(x_out2,(280,280)))
+cv2.waitKey()
