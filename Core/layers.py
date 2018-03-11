@@ -163,7 +163,7 @@ class DRAW(object):
     	Lx = img_size*K.mean(K.binary_crossentropy(X, C_out),axis=-1)
     	kl = K.mean(K.sum(kl,axis=1),axis=-1)
     	loss = Lx + kl
-    	self.model = Model(input=[X,C,h_dec_prev],output=C_out)
+    	self.model = Model(input=[X,C,h_dec_prev],output=[C_out])
     	self.model.add_loss(loss)
     	self.model.compile(optimizer="rmsprop", loss=None)
     def fit(self,x,y,batch_size,nb_epoch,validation_data=None,shuffle=True):
@@ -227,13 +227,13 @@ class DRAW(object):
     	merge_sub = keras.layers.Subtract()
     	h_dec_prev = Input(shape=(h,))
     	h_dec_prev_out = Activation("linear")(h_dec_prev)
+    	out = {i:None for i in range(self.n)}
     	for i in range(self.n):
-    		z_mean,z_log_var = mean(h_dec_prev_out),log_var(h_dec_prev_out)
-    		z = Lambda(self.Latent_Distribution_Sampling,arguments={"h":self.h},output_shape=(self.h,))([z_mean, z_log_var])
+    		z = Lambda(self.Latent_Distribution_Sampling,arguments={"h":self.h},output_shape=(self.h,))([h_dec_prev_out, h_dec_prev_out])
     		if i==0:
-    			kl = Lambda(lambda x:0.5*(K.square(x[0])+K.exp(x[1])-2*x[1]))([z_mean,z_log_var])
+    			kl = Lambda(lambda x:0.5*(K.square(x[0])+K.exp(x[1])-2*x[1]))([h_dec_prev_out,h_dec_prev_out])
     		else:
-    			kl1 = Lambda(lambda x:0.5*(K.square(x[0])+K.exp(x[1])-2*x[1]))([z_mean,z_log_var])
+    			kl1 = Lambda(lambda x:0.5*(K.square(x[0])+K.exp(x[1])-2*x[1]))([h_dec_prev_out,h_dec_prev_out])
     			kl = merge_add([kl,kl1])
     		z = keras.layers.Reshape((1,self.h))(z)
     		if i==0:
@@ -253,10 +253,11 @@ class DRAW(object):
     			C_out = Activation("linear")(w)
     		else:	
     			C_out = merge_add([C_out,w])
+    		out[i] = Activation("sigmoid")(C_out)	
     	C_out = Activation("sigmoid")(C_out)
     	kl = K.mean(K.sum(kl,axis=1),axis=-1)
     	loss = kl
-    	self.model_predict = Model(input=[h_dec_prev],output=C_out)
+    	self.model_predict = Model(input=[h_dec_prev],output=[out[i] for i in range(self.n)])
     	self.model_predict.add_loss(loss)
     	self.model_predict.compile(optimizer="rmsprop", loss=None)
 
