@@ -30,14 +30,22 @@ latent_space_dim = 128
 #RNN_decoder = LSTM(latent_space_dim,return_sequences=True)
 #RNN_encoder = LSTM(latent_space_dim,return_sequences=True)
 read_dense = Dense(5,activation="linear")
+<<<<<<< HEAD
 #write_dense = Dense(5,activation="linear")
+=======
+write_dense = Dense(5,activation="linear")
+>>>>>>> First Commit
 write_dense_image = Dense(write_n*write_n,activation="linear")
 def Latent_Distribution_Sampling(args):
 	z_mean,z_log_var = args
 	epsilon = K.random_normal(shape=(K.shape(z_mean)[0], latent_space_dim), mean=0.,stddev=epsilon_std)
 	return z_mean + K.exp(z_log_var / 2) * epsilon
 
+<<<<<<< HEAD
 def attn_window(args):
+=======
+def attn_window(args,N):
+>>>>>>> First Commit
 	gx,sigma2,delta = args
 	mu_x = Lambda(lambda x: (K.reshape(K.cast(K.arange(start=0,stop=N), "float32")- K.constant(N / 2 - 0.5),(N,1)))*x[0]+x[1])([delta,gx]) 
 	mu_x = Lambda(lambda x:K.permute_dimensions(x,(1,0)))(mu_x)
@@ -52,7 +60,11 @@ def attn_window(args):
 	Fx = Lambda(lambda x:x/(K.sum(x,2,keepdims=True)+K.epsilon()))(Fx)
 	return Fx
 
+<<<<<<< HEAD
 def read(args):
+=======
+def read(args,N):
+>>>>>>> First Commit
 	image_t,image_err,Fx,Fyt,gamma = args
 	if attention:
 		Fxt = K.permute_dimensions(Fx,(0,2,1))
@@ -72,11 +84,19 @@ def concatenate(args):
 
 
 
+<<<<<<< HEAD
 def write(args):
 	Fxt,Fyt,gamma = args
 	if attention:
 		Fyt = K.permute_dimensions(Fyt,(0,2,1))
 		w = write_dense_image(h_dec_prev)
+=======
+def write(args,write_n):
+	Fxt,Fyt,gamma,h_dec_prev_out = args
+	if attention:
+		Fyt = K.permute_dimensions(Fyt,(0,2,1))
+		w = write_dense_image(h_dec_prev_out)
+>>>>>>> First Commit
 		w = K.reshape(w,[-1,write_n,write_n])
 		wr = K.batch_dot(Fyt,K.batch_dot(w,Fxt))
 		wr = K.reshape(wr,[-1,B*A])
@@ -87,7 +107,11 @@ def write(args):
 
 C = Input(shape=(img_width*img_height*channels,))
 h_dec_prev = Input(shape=(latent_space_dim,))
+<<<<<<< HEAD
 h_enc_prev = Input(shape=(latent_space_dim,))
+=======
+#h_enc_prev = Input(shape=(latent_space_dim,))
+>>>>>>> First Commit
 x = Input(shape=(img_width*img_height*channels,))
 Z = Lambda(Latent_Distribution_Sampling, output_shape=(latent_space_dim,))
 R = Lambda(read)
@@ -98,6 +122,7 @@ attn = Lambda(attn_window)
 #sub = K.zeros(shape=(img_width*img_height*channels,))
 mean = Dense(latent_space_dim,activation="linear")
 log_var = Dense(latent_space_dim,activation="linear")
+<<<<<<< HEAD
 RNN_decoder = LSTM(latent_space_dim)
 RNN_encoder = LSTM(latent_space_dim)
 merge_add = keras.layers.Add()
@@ -112,12 +137,27 @@ def DRAW(args):
 	for i in range(T):
 		if i==0:
 			kl = []
+=======
+RNN_decoder = LSTM(latent_space_dim,return_state=True)
+RNN_encoder = LSTM(latent_space_dim,return_state=True)
+merge_add = keras.layers.Add()
+merge_sub = keras.layers.Subtract()
+#C_sigma = Activation("sigmoid")(C)
+C_out = Activation("linear")(C)
+h_dec_prev_out = Activation("linear")(h_dec_prev)
+#h_enc_prev_out = Activation("linear")(h_enc_prev)
+
+def DRAW(args):
+	X,C_out,h_dec_prev_out = args
+	for i in range(T):
+>>>>>>> First Commit
 		C_sigma = Activation("sigmoid")(C_out)
 		X_hat = merge_sub([X,C_sigma])
 		attn_param = read_dense(h_dec_prev_out)
 		gx = Lambda(lambda x: (A+1)*(x[:,0]+1)/2)(attn_param)
 		gy = Lambda(lambda x: (B+1)*(x[:,1]+1)/2)(attn_param)
 		sigma2 = Lambda(lambda x: K.exp(x[:,2]))(attn_param)
+<<<<<<< HEAD
 		delta = Lambda(lambda x: (max(A,B)-1)/(N-1)*K.exp(x[:,3]))(attn_param)
 		gamma = Lambda(lambda x: K.exp(x[:,4]))(attn_param)
 		Fx = attn([gx,sigma2,delta])
@@ -173,3 +213,74 @@ x_out1 = x_out1.reshape((28,28))
 cv2.imshow("img",cv2.resize(x_out1,(280,280)))
 cv2.imshow("img2",cv2.resize(x_out2,(280,280)))
 cv2.waitKey()
+=======
+		delta = Lambda(lambda x: (max(A,B)-1)/(2-1)*K.exp(x[:,3]))(attn_param)
+		gamma = Lambda(lambda x: K.exp(x[:,4]))(attn_param)
+		Fx = Lambda(attn_window,arguments={"N":2})([gx,sigma2,delta])
+		Fy = Lambda(attn_window,arguments={"N":2})([gy,sigma2,delta])
+		r = Lambda(read,arguments={"N":2})([X,X_hat,Fx,Fy,gamma])
+		h_dec = Con([r,h_dec_prev_out])
+		h_dec = keras.layers.Reshape((1,latent_space_dim+2*4))(h_dec)
+		if i==0:
+			h_enc_prev_out,enc_state_h, enc_state_c  = RNN_encoder(h_dec,initial_state=[h_dec_prev_out,h_dec_prev_out])
+		else:
+			h_enc_prev_out,enc_state_h, enc_state_c  = RNN_encoder(h_dec,initial_state=[enc_state_h,enc_state_c])
+		z_mean,z_log_var = mean(enc_state_h),log_var(enc_state_h)
+		z = Z([z_mean, z_log_var])
+		if i==0:
+			kl0 = Lambda(lambda x:0.5*(K.square(x[0])+K.exp(x[1])-2*x[1]))([z_mean,z_log_var])
+		else:
+			kl1 = Lambda(lambda x:0.5*(K.square(x[0])+K.exp(x[1])-2*x[1]))([z_mean,z_log_var])
+			kl0 = merge_add([kl0,kl1])
+		z = keras.layers.Reshape((1,latent_space_dim))(z)
+		if i==0: 
+			h_dec_prev_out,dec_state_h,dec_state_c = RNN_decoder(z,initial_state=[h_dec_prev_out,h_dec_prev_out])
+		else:
+			h_dec_prev_out,dec_state_h,dec_state_c = RNN_decoder(z,initial_state=[dec_state_h,dec_state_c])
+		#'''
+		attn_param = write_dense(h_dec_prev_out)
+		gx = Lambda(lambda x: (A+1)*(x[:,0]+1)/2)(attn_param)
+		gy = Lambda(lambda x: (B+1)*(x[:,1]+1)/2)(attn_param)
+		sigma2 = Lambda(lambda x: K.exp(x[:,2]))(attn_param)
+		delta = Lambda(lambda x: (max(A,B)-1)/(5-1)*K.exp(x[:,3]))(attn_param)
+		gamma = Lambda(lambda x: K.exp(x[:,4]))(attn_param)
+		Fx = Lambda(attn_window,arguments={"N":5})([gx,sigma2,delta])
+		Fy = Lambda(attn_window,arguments={"N":5})([gy,sigma2,delta])
+		w = Lambda(write,arguments={"write_n":5})([Fx,Fy,gamma,dec_state_h])
+		#'''
+		C_out = merge_add([C_out,w])
+	return kl0,C_out	
+kl,C_out = DRAW([x,C_out,h_dec_prev_out])
+C_out = Activation("sigmoid")(C_out)
+Lx = 784*K.mean(K.binary_crossentropy(x, C_out),axis=-1)
+kl = K.mean(K.sum(kl,axis=1),axis=-1)
+#optimizer = keras.optimizers.Adam(lr=1e-3)
+loss = Lx + kl
+model = Model([x,C,h_dec_prev],C_out)
+model.add_loss(loss)
+model.compile(optimizer="nadam",loss=None)#loss=['binary_crossentropy', 'mae'],loss_weights=[1.0, 1.0])
+(x_train, y_train), (x_test, y_test) = mnist.load_data()
+x_train = x_train/255
+x_train[x_train>0.5] = 1
+x_train[x_train<=0.5] = 0
+print(np.max(x_train))
+x_train = x_train.reshape(x_train.shape[0], 28*28)
+model.load_weights("weights.h5")
+for i in range(20):
+	model.fit([x_train,np.zeros((x_train.shape[0],28*28),dtype="float32"),np.zeros((x_train.shape[0],latent_space_dim),dtype="float32")],verbose=1,batch_size=200,epochs=10)
+	model.save_weights("weights.h5")
+	x_out = model.predict([x_train[:2,:],np.zeros((2,28*28)),np.zeros((2,latent_space_dim))],batch_size=1)
+	#print(x_out)
+	x_out1 = x_out[0,:]
+	print(np.max(x_out1))
+	#x_out2 = x_train[0,:]
+	x_out1 = x_out1*255
+	x_out1 = x_out1.astype('uint8')
+	#x_out2 = x_out2*255
+	#x_out2 = x_out2.astype('uint8')
+	#x_out2 = x_out2.reshape((28,28))
+	x_out1 = x_out1.reshape((28,28))
+	cv2.imwrite("img_{0}.jpg".format(5+i),cv2.resize(x_out1,(280,280)))
+	#cv2.imshow("img2",cv2.resize(x_out1,(280,280)))
+	#cv2.waitKey(0)
+>>>>>>> First Commit

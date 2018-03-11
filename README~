@@ -1,16 +1,9 @@
-<<<<<<< HEAD
-This is a keras implementation of the following paper
-https://arxiv.org/abs/1502.04623
-
-DISCLAIMER
-Work in progress.
-=======
 # DRAW (Deep Recurrent Attention Writer)
 This is a keras implementation of the paper https://arxiv.org/abs/1502.04623
 
-## Getting Started
+### Synopsis
 
-python draw.py --data_dir=/tmp/draw` downloads the binarized MNIST dataset to /tmp/draw/mnist and trains the DRAW model with attention enabled for both reading and writing. After training, output data is written to `/tmp/draw/draw_data.npy`
+At the top of the file there should be a short introduction and/ or overview that explains **what** the project is. This description should match descriptions added for package managers (Gemspec, package.json, etc.)
 
 ### Motivation
 
@@ -107,4 +100,3 @@ This project is licensed under the **BSD License** - see the [LICENSE.md](LICENS
 * Hat tip to anyone who's code was used
 * Inspiration
 * etc
->>>>>>> First Commit
