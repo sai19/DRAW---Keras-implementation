@@ -94,58 +94,15 @@ class DRAW(object):
     	else:
     		return write_dense(h_dec_prev)
 
-    @staticmethod
-    def draw(args):
-    	X,C_out,h_dec_prev_out,n = args
-    	for i in range(n):
-    		C_sigma = Activation("sigmoid")(C_out)
-    		X_hat = merge_sub([X,C_sigma])
-    		attn_param = read_dense(h_dec_prev_out)
-    		gx = Lambda(lambda x: (A+1)*(x[:,0]+1)/2)(attn_param)
-    		gy = Lambda(lambda x: (B+1)*(x[:,1]+1)/2)(attn_param)
-    		sigma2 = Lambda(lambda x: K.exp(x[:,2]))(attn_param)
-    		delta = Lambda(lambda x: (max(A,B)-1)/(self.read_window-1)*K.exp(x[:,3]))(attn_param)
-    		gamma = Lambda(lambda x: K.exp(x[:,4]))(attn_param)
-    		Fx = Lambda(self.attn_window,arguments={"N":self.read_window,"dim":self.img_width})([gx,sigma2,delta])
-    		Fy = Lambda(self.attn_window,arguments={"N":self.read_window,"dim":self.img_height})([gy,sigma2,delta])
-    		r = Lambda(self.read,arguments={"N":self.read_window,"attention":self.attention})([X,X_hat,Fx,Fy,gamma])
-    		h_dec = Con([r,h_dec_prev_out])
-    		h_dec = keras.layers.Reshape((1,latent_space_dim+2*4))(h_dec)
-    		if i==0:
-    			h_enc_prev_out,enc_state_h, enc_state_c  = RNN_encoder(h_dec,initial_state=[h_dec_prev_out,h_dec_prev_out])
-    		else:
-    			h_enc_prev_out,enc_state_h, enc_state_c  = RNN_encoder(h_dec,initial_state=[enc_state_h,enc_state_c])
-    		z_mean,z_log_var = mean(enc_state_h),log_var(enc_state_h)
-    		z = Z([z_mean, z_log_var])
-    		if i==0:
-    			kl0 = Lambda(lambda x:0.5*(K.square(x[0])+K.exp(x[1])-2*x[1]))([z_mean,z_log_var])
-    		else:
-    			kl1 = Lambda(lambda x:0.5*(K.square(x[0])+K.exp(x[1])-2*x[1]))([z_mean,z_log_var])
-    			kl0 = merge_add([kl0,kl1])
-    		z = keras.layers.Reshape((1,latent_space_dim))(z)
-    		if i==0:
-    			h_dec_prev_out,dec_state_h,dec_state_c = RNN_decoder(z,initial_state=[h_dec_prev_out,h_dec_prev_out])
-    		else:
-    			h_dec_prev_out,dec_state_h,dec_state_c = RNN_decoder(z,initial_state=[dec_state_h,dec_state_c])
-    		attn_param = write_dense(h_dec_prev_out)
-    		gx = Lambda(lambda x: (A+1)*(x[:,0]+1)/2)(attn_param)
-    		gy = Lambda(lambda x: (B+1)*(x[:,1]+1)/2)(attn_param)
-    		sigma2 = Lambda(lambda x: K.exp(x[:,2]))(attn_param)
-    		delta = Lambda(lambda x: (max(A,B)-1)/(self.write_window-1)*K.exp(x[:,3]))(attn_param)
-    		gamma = Lambda(lambda x: K.exp(x[:,4]))(attn_param)
-    		Fx = Lambda(attn_window,arguments={"N":self.write_window})([gx,sigma2,delta])
-    		Fy = Lambda(attn_window,arguments={"N":self.write_window})([gy,sigma2,delta])
-    		w = Lambda(write,arguments={"write_n":self.write_window})([Fx,Fy,gamma,dec_state_h])
-    		C_out = merge_add([C_out,w])
-    	return kl0,C_out
     
-    def build(self,input_shape, read_window, write_window,rnn_type,h):
-    	img_width,img_height,channels = input_shape[0],input_shape[1],input_shape[2] # image width,height,channels
+    def build(self,input_shape, read_window, write_window,rnn_type):
+    	h = self.h
+    	self.img_width,self.img_height,self.channels = input_shape[0],input_shape[1],input_shape[2] # image width,height,channels
+    	img_width,img_height,channels = self.img_width,self.img_height,self.channels
     	img_size = img_width*img_height*channels
-    	epsilon_std = 1.0
-    	read_dense = Dense(5,activation="linear")
-    	write_dense = Dense(5,activation="linear")
-    	write_dense_image = Dense(self.write_window*self.write_window,activation="linear")
+    	self.read_dense = Dense(5,activation="linear")
+    	self.write_dense = Dense(5,activation="linear")
+    	self.write_dense_image = Dense(self.write_window*self.write_window,activation="linear")
     	C = Input(shape=(img_width*img_height*channels,))
     	h_dec_prev = Input(shape=(h,))
     	X = Input(shape=(img_width*img_height*channels,))
@@ -156,8 +113,8 @@ class DRAW(object):
     	attn = Lambda(self.attn_window)
     	mean = Dense(self.h,activation="linear")
     	log_var = Dense(self.h,activation="linear")
-    	RNN_decoder = LSTM(self.h,return_state=True)
-    	RNN_encoder = LSTM(self.h,return_state=True)
+    	self.RNN_decoder = LSTM(self.h,return_state=True)
+    	self.RNN_encoder = LSTM(self.h,return_state=True)
     	merge_add = keras.layers.Add()
     	merge_sub = keras.layers.Subtract()
     	C_out = Activation("linear")(C)
@@ -165,7 +122,7 @@ class DRAW(object):
     	for i in range(self.n):
     		C_sigma = Activation("sigmoid")(C_out)
     		X_hat = merge_sub([X,C_sigma])
-    		attn_param = read_dense(h_dec_prev_out)
+    		attn_param = self.read_dense(h_dec_prev_out)
     		gx = Lambda(lambda x: (img_width+1)*(x[:,0]+1)/2)(attn_param)
     		gy = Lambda(lambda x: (img_height+1)*(x[:,1]+1)/2)(attn_param)
     		sigma2 = Lambda(lambda x: K.exp(x[:,2]))(attn_param)
@@ -177,9 +134,9 @@ class DRAW(object):
     		h_dec = Con([r,h_dec_prev_out])
     		h_dec = keras.layers.Reshape((1,self.h+2*4))(h_dec)
     		if i==0:
-    			h_enc_prev_out,enc_state_h, enc_state_c  = RNN_encoder(h_dec,initial_state=[h_dec_prev_out,h_dec_prev_out])
+    			h_enc_prev_out,enc_state_h, enc_state_c  = self.RNN_encoder(h_dec,initial_state=[h_dec_prev_out,h_dec_prev_out])
     		else:
-    			h_enc_prev_out,enc_state_h, enc_state_c  = RNN_encoder(h_dec,initial_state=[enc_state_h,enc_state_c])
+    			h_enc_prev_out,enc_state_h, enc_state_c  = self.RNN_encoder(h_dec,initial_state=[enc_state_h,enc_state_c])
     		z_mean,z_log_var = mean(enc_state_h),log_var(enc_state_h)
     		z = Lambda(self.Latent_Distribution_Sampling,arguments={"h":self.h},output_shape=(self.h,))([z_mean, z_log_var])
     		if i==0:
@@ -189,10 +146,10 @@ class DRAW(object):
     			kl = merge_add([kl,kl1])
     		z = keras.layers.Reshape((1,self.h))(z)
     		if i==0:
-    			h_dec_prev_out,dec_state_h,dec_state_c = RNN_decoder(z,initial_state=[h_dec_prev_out,h_dec_prev_out])
+    			h_dec_prev_out,dec_state_h,dec_state_c = self.RNN_decoder(z,initial_state=[h_dec_prev_out,h_dec_prev_out])
     		else:
-    			h_dec_prev_out,dec_state_h,dec_state_c = RNN_decoder(z,initial_state=[dec_state_h,dec_state_c])
-    		attn_param = write_dense(h_dec_prev_out)
+    			h_dec_prev_out,dec_state_h,dec_state_c = self.RNN_decoder(z,initial_state=[dec_state_h,dec_state_c])
+    		attn_param = self.write_dense(h_dec_prev_out)
     		gx = Lambda(lambda x: (img_width+1)*(x[:,0]+1)/2)(attn_param)
     		gy = Lambda(lambda x: (img_height+1)*(x[:,1]+1)/2)(attn_param)
     		sigma2 = Lambda(lambda x: K.exp(x[:,2]))(attn_param)
@@ -200,7 +157,7 @@ class DRAW(object):
     		gamma = Lambda(lambda x: K.exp(x[:,4]))(attn_param)
     		Fx = Lambda(self.attn_window,arguments={"N":self.write_window,"dim":img_width})([gx,sigma2,delta])
     		Fy = Lambda(self.attn_window,arguments={"N":self.write_window,"dim":img_height})([gy,sigma2,delta])
-    		w = Lambda(self.write,arguments={"write_n":self.write_window,"attention":self.attention,"A":img_width,"B":img_height,"write_dense_image":write_dense_image})([Fx,Fy,gamma,dec_state_h])
+    		w = Lambda(self.write,arguments={"write_n":self.write_window,"attention":self.attention,"A":img_width,"B":img_height,"write_dense_image":self.write_dense_image})([Fx,Fy,gamma,dec_state_h])
     		C_out = merge_add([C_out,w])
     	C_out = Activation("sigmoid")(C_out)
     	Lx = img_size*K.mean(K.binary_crossentropy(X, C_out),axis=-1)
@@ -253,6 +210,55 @@ class DRAW(object):
             validation_data=validation_data,
             nb_val_samples=nb_val_samples
         )
+
+    def build_predict(self):
+    	print("make sure that the model is trained before prediction")
+    	h = self.h
+    	img_width,img_height,channels = self.img_width,self.img_height,self.channels
+    	img_size = img_width*img_height*channels
+    	Z = Lambda(self.Latent_Distribution_Sampling, output_shape=(self.h,))
+    	R = Lambda(self.read)
+    	W = Lambda(self.write)
+    	Con = Lambda(self.concatenate)
+    	attn = Lambda(self.attn_window)
+    	mean = Dense(self.h,activation="linear")
+    	log_var = Dense(self.h,activation="linear")
+    	merge_add = keras.layers.Add()
+    	merge_sub = keras.layers.Subtract()
+    	h_dec_prev = Input(shape=(h,))
+    	h_dec_prev_out = Activation("linear")(h_dec_prev)
+    	for i in range(self.n):
+    		z_mean,z_log_var = mean(h_dec_prev_out),log_var(h_dec_prev_out)
+    		z = Lambda(self.Latent_Distribution_Sampling,arguments={"h":self.h},output_shape=(self.h,))([z_mean, z_log_var])
+    		if i==0:
+    			kl = Lambda(lambda x:0.5*(K.square(x[0])+K.exp(x[1])-2*x[1]))([z_mean,z_log_var])
+    		else:
+    			kl1 = Lambda(lambda x:0.5*(K.square(x[0])+K.exp(x[1])-2*x[1]))([z_mean,z_log_var])
+    			kl = merge_add([kl,kl1])
+    		z = keras.layers.Reshape((1,self.h))(z)
+    		if i==0:
+    			h_dec_prev_out,dec_state_h,dec_state_c = self.RNN_decoder(z,initial_state=[h_dec_prev_out,h_dec_prev_out])
+    		else:
+    			h_dec_prev_out,dec_state_h,dec_state_c = self.RNN_decoder(z,initial_state=[dec_state_h,dec_state_c])
+    		attn_param = self.write_dense(h_dec_prev_out)
+    		gx = Lambda(lambda x: (img_width+1)*(x[:,0]+1)/2)(attn_param)
+    		gy = Lambda(lambda x: (img_height+1)*(x[:,1]+1)/2)(attn_param)
+    		sigma2 = Lambda(lambda x: K.exp(x[:,2]))(attn_param)
+    		delta = Lambda(lambda x: (max(img_width,img_height)-1)/(self.write_window-1)*K.exp(x[:,3]))(attn_param)
+    		gamma = Lambda(lambda x: K.exp(x[:,4]))(attn_param)
+    		Fx = Lambda(self.attn_window,arguments={"N":self.write_window,"dim":img_width})([gx,sigma2,delta])
+    		Fy = Lambda(self.attn_window,arguments={"N":self.write_window,"dim":img_height})([gy,sigma2,delta])
+    		w = Lambda(self.write,arguments={"write_n":self.write_window,"attention":self.attention,"A":img_width,"B":img_height,"write_dense_image":self.write_dense_image})([Fx,Fy,gamma,dec_state_h])
+    		if i==0:
+    			C_out = Activation("linear")(w)
+    		else:	
+    			C_out = merge_add([C_out,w])
+    	C_out = Activation("sigmoid")(C_out)
+    	kl = K.mean(K.sum(kl,axis=1),axis=-1)
+    	loss = kl
+    	self.model_predict = Model(input=[h_dec_prev],output=C_out)
+    	self.model_predict.add_loss(loss)
+    	self.model_predict.compile(optimizer="rmsprop", loss=None)
 
 
     def load_model(self, checkpoint_file):
