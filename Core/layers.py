@@ -111,8 +111,8 @@ class DRAW(object):
     	W = Lambda(self.write)
     	Con = Lambda(self.concatenate)
     	attn = Lambda(self.attn_window)
-    	mean = Dense(self.h,activation="linear")
-    	log_var = Dense(self.h,activation="linear")
+    	self.mean = Dense(self.h,activation="linear")
+    	self.log_var = Dense(self.h,activation="linear")
     	self.RNN_decoder = LSTM(self.h,return_state=True)
     	self.RNN_encoder = LSTM(self.h,return_state=True)
     	merge_add = keras.layers.Add()
@@ -137,12 +137,12 @@ class DRAW(object):
     			h_enc_prev_out,enc_state_h, enc_state_c  = self.RNN_encoder(h_dec,initial_state=[h_dec_prev_out,h_dec_prev_out])
     		else:
     			h_enc_prev_out,enc_state_h, enc_state_c  = self.RNN_encoder(h_dec,initial_state=[enc_state_h,enc_state_c])
-    		z_mean,z_log_var = mean(enc_state_h),log_var(enc_state_h)
+    		z_mean,z_log_var = self.mean(enc_state_h),self.log_var(enc_state_h)
     		z = Lambda(self.Latent_Distribution_Sampling,arguments={"h":self.h},output_shape=(self.h,))([z_mean, z_log_var])
     		if i==0:
-    			kl = Lambda(lambda x:0.5*(K.square(x[0])+K.exp(x[1])-2*x[1]))([z_mean,z_log_var])
+    			kl = Lambda(lambda x:0.5*(K.square(x[0])+K.square(K.exp(x[1]))-2*x[1]-1))([z_mean,z_log_var])
     		else:
-    			kl1 = Lambda(lambda x:0.5*(K.square(x[0])+K.exp(x[1])-2*x[1]))([z_mean,z_log_var])
+    			kl1 = Lambda(lambda x:0.5*(K.square(x[0])+K.square(K.exp(x[1]))-2*x[1]-1))([z_mean,z_log_var])
     			kl = merge_add([kl,kl1])
     		z = keras.layers.Reshape((1,self.h))(z)
     		if i==0:
@@ -160,8 +160,8 @@ class DRAW(object):
     		w = Lambda(self.write,arguments={"write_n":self.write_window,"attention":self.attention,"A":img_width,"B":img_height,"write_dense_image":self.write_dense_image})([Fx,Fy,gamma,dec_state_h])
     		C_out = merge_add([C_out,w])
     	C_out = Activation("sigmoid")(C_out)
-    	Lx = img_size*K.mean(K.binary_crossentropy(X, C_out),axis=-1)
-    	kl = K.mean(K.sum(kl,axis=1),axis=-1)
+    	Lx = K.mean(K.binary_crossentropy(X, C_out),axis=-1)
+    	kl = K.mean(kl,axis=-1)
     	loss = Lx + kl
     	self.model = Model(input=[X,C,h_dec_prev],output=[C_out])
     	self.model.add_loss(loss)
@@ -231,10 +231,10 @@ class DRAW(object):
     	for i in range(self.n):
     		z = Lambda(self.Latent_Distribution_Sampling,arguments={"h":self.h},output_shape=(self.h,))([h_dec_prev_out, h_dec_prev_out])
     		if i==0:
-    			kl = Lambda(lambda x:0.5*(K.square(x[0])+K.exp(x[1])-2*x[1]))([h_dec_prev_out,h_dec_prev_out])
-    		else:
-    			kl1 = Lambda(lambda x:0.5*(K.square(x[0])+K.exp(x[1])-2*x[1]))([h_dec_prev_out,h_dec_prev_out])
-    			kl = merge_add([kl,kl1])
+                kl = Lambda(lambda x:0.5*(K.square(x[0])+K.square(K.exp(x[1]))-2*x[1]-1))([z_mean,z_log_var])
+            else:
+                kl1 = Lambda(lambda x:0.5*(K.square(x[0])+K.square(K.exp(x[1]))-2*x[1]-1))([z_mean,z_log_var])
+                kl = merge_add([kl,kl1])
     		z = keras.layers.Reshape((1,self.h))(z)
     		if i==0:
     			h_dec_prev_out,dec_state_h,dec_state_c = self.RNN_decoder(z,initial_state=[h_dec_prev_out,h_dec_prev_out])
